@@ -74,7 +74,7 @@ class PhoenixSocketOptions {
     final res = dynamicParams != null ? await dynamicParams!() : params ?? {};
     return {
       ...res,
-      'vsn': '2.0.0',
+      'vsn': '1.0.0',
     };
   }
 }
