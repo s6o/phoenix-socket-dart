@@ -4,28 +4,43 @@ import 'package:logging/logging.dart';
 import 'channel.dart';
 import 'events.dart';
 import 'socket.dart';
+import 'socket_options.dart';
 
 final Logger _logger = Logger('phoenix_socket.message');
 
 /// Class that encapsulate a message being sent or received on a
 /// [PhoenixSocket].
 class Message extends Equatable {
-  /// Given a parsed JSON coming from the backend, yield
-  /// a [Message] instance.
-  factory Message.fromJson(List<dynamic> parts) {
+  /// Given a parsed JSON coming from the backend, yield a [Message] instance
+  /// accordingly Phoenix socket protocol [Version].
+  factory Message.fromJson(dynamic parts, Version v) {
     _logger.finest('Message decoded from $parts');
-    return Message(
-      joinRef: parts[0],
-      ref: parts[1],
-      topic: parts[2],
-      event: PhoenixChannelEvent.custom(parts[3]),
-      payload: parts[4],
-    );
+    switch (v) {
+      case Version.v1:
+        return Message(
+          version: v,
+          joinRef: parts['join_ref'],
+          ref: parts['ref'],
+          topic: parts['topic'],
+          event: PhoenixChannelEvent.custom(parts['event']),
+          payload: parts['payload'],
+        );
+      case Version.v2:
+        return Message(
+          version: v,
+          joinRef: parts[0],
+          ref: parts[1],
+          topic: parts[2],
+          event: PhoenixChannelEvent.custom(parts[3]),
+          payload: parts[4],
+        );
+    }
   }
 
   /// Given a unique reference, generate a heartbeat message.
-  factory Message.heartbeat(String ref) {
+  factory Message.heartbeat(String ref, Version v) {
     return Message(
+      version: v,
       topic: 'phoenix',
       event: PhoenixChannelEvent.heartbeat,
       payload: const {},
@@ -35,8 +50,9 @@ class Message extends Equatable {
 
   /// Given a unique reference, generate a timeout message that
   /// will be used to error out a push.
-  factory Message.timeoutFor(String ref) {
+  factory Message.timeoutFor(String ref, Version v) {
     return Message(
+      version: v,
       event: PhoenixChannelEvent.replyFor(ref),
       payload: const {
         'status': 'timeout',
@@ -47,12 +63,16 @@ class Message extends Equatable {
 
   /// Build a [Message] from its constituents.
   Message({
+    required this.version,
     this.joinRef,
     this.ref,
     this.topic,
     required this.event,
     this.payload,
   });
+
+  /// Version of the Phoenix socket protocol
+  final Version version;
 
   /// Reference of the channel on which the message is received.
   ///
@@ -77,17 +97,31 @@ class Message extends Equatable {
   /// This needs to be a JSON-encodable object.
   final Map<String, dynamic>? payload;
 
-  /// Encode a message to a JSON-encodable list of values.
+  /// Encode a message to JSON-encodable structure accordingly to Phoenix socket
+  /// protocol [version]
   Object encode() {
-    final parts = [
-      joinRef,
-      ref,
-      topic,
-      event.value,
-      payload,
-    ];
-    _logger.finest('Message encoded to $parts');
-    return parts;
+    switch (version) {
+      case Version.v1:
+        Map<String, dynamic> msg = {
+          'ref': ref,
+          'topic': topic,
+          'event': event.value,
+          'payload': payload,
+        };
+        _logger.finest('Message encoded to $msg');
+        return msg;
+
+      case Version.v2:
+        final parts = [
+          joinRef,
+          ref,
+          topic,
+          event.value,
+          payload,
+        ];
+        _logger.finest('Message encoded to $parts');
+        return parts;
+    }
   }
 
   @override
@@ -103,6 +137,7 @@ class Message extends Equatable {
   /// a proper reply message.
   Message asReplyEvent() {
     return Message(
+      version: version,
       ref: ref,
       payload: payload,
       event: PhoenixChannelEvent.replyFor(ref!),

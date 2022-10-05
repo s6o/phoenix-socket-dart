@@ -1,3 +1,5 @@
+import 'package:phoenix_socket/phoenix_socket.dart';
+
 import 'events.dart';
 import 'message.dart';
 import 'push.dart';
@@ -7,10 +9,14 @@ import 'socket.dart';
 class PhoenixException implements Exception {
   /// The default constructor for this exception.
   PhoenixException({
+    required this.version,
     this.socketClosed,
     this.socketError,
     this.channelEvent,
   });
+
+  /// Phoenix socket protocol version
+  final Version version;
 
   /// The associated error event.
   final PhoenixSocketErrorEvent? socketError;
@@ -24,9 +30,9 @@ class PhoenixException implements Exception {
   /// The error message for this exception.
   Message? get message {
     if (socketClosed != null) {
-      return Message(event: PhoenixChannelEvent.error);
+      return Message(version: version, event: PhoenixChannelEvent.error);
     } else if (socketError != null) {
-      return Message(event: PhoenixChannelEvent.error);
+      return Message(version: version, event: PhoenixChannelEvent.error);
     }
     return null;
   }

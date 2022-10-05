@@ -59,8 +59,8 @@ class PhoenixSocket {
 
     _reconnects = _options.reconnectDelays;
 
-    _messageStream =
-        _receiveStreamController.stream.map(_options.serializer.decode);
+    _messageStream = _receiveStreamController.stream
+        .map((s) => _options.serializer.decode(s, version));
 
     _openStream =
         _stateStreamController.stream.whereType<PhoenixSocketOpenEvent>();
@@ -115,6 +115,9 @@ class PhoenixSocket {
 
   /// Stream of all [Message] instances received.
   Stream<Message> get messageStream => _messageStream;
+
+  /// Phoenix socket protocol [Version].
+  Version get version => _options.version;
 
   /// Reconnection durations, increasing in length.
   late List<Duration> _reconnects;
@@ -210,7 +213,7 @@ class PhoenixSocket {
         _logger.info('Socket open');
         completer.complete(this);
       } else {
-        throw PhoenixException();
+        throw PhoenixException(version: version);
       }
     } on PhoenixException catch (err, stackTrace) {
       _logger.severe('Raised PhoenixException', err, stackTrace);
@@ -299,12 +302,13 @@ class PhoenixSocket {
 
   /// Send a channel on the socket.
   ///
-  /// Used internall to send prepared message. If you need to send
+  /// Used internally to send prepared message. If you need to send
   /// a message on a channel, you would usually use [PhoenixChannel.push]
   /// instead.
   Future<Message> sendMessage(Message message) {
     if (_ws?.sink == null) {
       return Future.error(PhoenixException(
+        version: version,
         socketClosed: PhoenixSocketCloseEvent(),
       ));
     }
@@ -442,6 +446,7 @@ class PhoenixSocket {
         stacktrace,
       );
       _triggerChannelExceptions(PhoenixException(
+        version: version,
         socketError: PhoenixSocketErrorEvent(
           error: err,
           stacktrace: stacktrace,
@@ -463,7 +468,8 @@ class PhoenixSocket {
     }
   }
 
-  Message _heartbeatMessage() => Message.heartbeat(_nextHeartbeatRef = nextRef);
+  Message _heartbeatMessage() =>
+      Message.heartbeat(_nextHeartbeatRef = nextRef, version);
 
   void _onMessage(Message message) {
     if (message.ref != null) {
@@ -512,7 +518,8 @@ class PhoenixSocket {
     }
 
     _logger.severe('Error on socket', error, stacktrace);
-    _triggerChannelExceptions(PhoenixException(socketError: socketError));
+    _triggerChannelExceptions(
+        PhoenixException(version: version, socketError: socketError));
     _pendingMessages.clear();
 
     _onSocketClosed();
@@ -531,7 +538,7 @@ class PhoenixSocket {
       reason: _ws?.closeReason ?? 'WebSocket could not establish a connection',
       code: _ws?.closeCode,
     );
-    final exc = PhoenixException(socketClosed: ev);
+    final exc = PhoenixException(version: version, socketClosed: ev);
     _ws = null;
 
     if (!_stateStreamController.isClosed) {

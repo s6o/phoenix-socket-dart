@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:equatable/equatable.dart';
 import 'package:logging/logging.dart';
+import 'package:phoenix_socket/phoenix_socket.dart';
 import 'package:quiver/collection.dart';
 
 import 'channel.dart';
@@ -72,12 +73,14 @@ class Push {
   ///
   /// Prefer using [PhoenixChannel.push] instead of using this.
   Push(
-    PhoenixChannel channel, {
+    PhoenixChannel channel,
+    Version v, {
     this.event,
     this.payload,
     this.timeout,
   })  : _channel = channel,
-        _logger = Logger('phoenix_socket.push.${channel.loggerName}');
+        _logger = Logger('phoenix_socket.push.${channel.loggerName}'),
+        _version = v;
 
   final Logger _logger;
   final ListMultimap<String, void Function(PushResponse)> _receivers =
@@ -95,6 +98,9 @@ class Push {
 
   /// The expected timeout, after which the push is considered failed.
   Duration? timeout;
+
+  /// Phoenix socket protocol version
+  final Version _version;
 
   PushResponse? _received;
   bool _sent = false;
@@ -149,6 +155,7 @@ class Push {
     startTimeout();
     try {
       await _channel.socket.sendMessage(Message(
+        version: _version,
         event: event!,
         topic: _channel.topic,
         payload: payload!(),
@@ -199,7 +206,7 @@ class Push {
     _timeoutTimer ??= Timer(timeout!, () {
       _timeoutTimer = null;
       _logger.warning('Push $ref timed out');
-      _channel.trigger(Message.timeoutFor(ref));
+      _channel.trigger(Message.timeoutFor(ref, _version));
     });
   }
 

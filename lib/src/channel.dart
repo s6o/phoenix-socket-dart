@@ -192,6 +192,7 @@ class PhoenixChannel {
 
     final leavePush = Push(
       this,
+      socket.version,
       event: PhoenixChannelEvent.leave,
       payload: () => {},
       timeout: timeout ?? _timeout,
@@ -265,6 +266,7 @@ class PhoenixChannel {
 
     final pushEvent = Push(
       this,
+      socket.version,
       event: event,
       payload: () => payload,
       timeout: newTimeout ?? _timeout,
@@ -299,6 +301,7 @@ class PhoenixChannel {
   Push _prepareJoin([Duration? providedTimeout]) {
     final push = Push(
       this,
+      socket.version,
       event: PhoenixChannelEvent.join,
       payload: () => parameters,
       timeout: providedTimeout ?? _timeout,
@@ -331,6 +334,7 @@ class PhoenixChannel {
 
         Push(
           this,
+          socket.version,
           event: PhoenixChannelEvent.leave,
           payload: () => {},
           timeout: _timeout,
@@ -401,6 +405,7 @@ class PhoenixChannel {
   void _onClose(PushResponse response) {
     _logger.finer('Leave message has completed');
     trigger(Message(
+      version: socket.version,
       event: PhoenixChannelEvent.close,
       payload: const <String, String>{'ok': 'leave'},
     ));

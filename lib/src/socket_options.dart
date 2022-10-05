@@ -2,6 +2,15 @@ import 'package:meta/meta.dart';
 
 import 'message_serializer.dart';
 
+/// Phoenix socket protocol version
+enum Version {
+  v1('1.0.0'),
+  v2('2.0.0');
+
+  final String xyz;
+  const Version(this.xyz);
+}
+
 /// Options for the open Phoenix socket.
 ///
 /// Provided durations are all in milliseconds.
@@ -40,6 +49,11 @@ class PhoenixSocketOptions {
     /// Either this or [params] car to be provided, but not both.
     this.dynamicParams,
     MessageSerializer? serializer,
+
+    /// Default protocol [Version.v2]
+    /// But can be overriden with [Version.v1] to support older Phoenix Framework
+    /// installations e.g. 1.3.4
+    this.version = Version.v2,
   })  : _timeout = timeout ?? const Duration(seconds: 10),
         serializer = serializer ?? MessageSerializer(),
         _heartbeat = heartbeat ?? const Duration(seconds: 30),
@@ -69,12 +83,15 @@ class PhoenixSocketOptions {
   /// Will be called to get fresh params before each connection attempt.
   final Future<Map<String, String>> Function()? dynamicParams;
 
+  /// Socket protocol version
+  final Version version;
+
   /// Get connection params.
   Future<Map<String, String>> getParams() async {
     final res = dynamicParams != null ? await dynamicParams!() : params ?? {};
     return {
       ...res,
-      'vsn': '1.0.0',
+      'vsn': version.xyz,
     };
   }
 }
