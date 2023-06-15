@@ -5,11 +5,6 @@ import 'package:logging/logging.dart';
 import 'package:phoenix_socket/phoenix_socket.dart';
 import 'package:quiver/collection.dart';
 
-import 'channel.dart';
-import 'events.dart';
-import 'exceptions.dart';
-import 'message.dart';
-
 /// Encapsulates the response to a [Push].
 class PushResponse extends Equatable {
   /// Builds a PushResponse from a status and response.
@@ -73,14 +68,15 @@ class Push {
   ///
   /// Prefer using [PhoenixChannel.push] instead of using this.
   Push(
-    PhoenixChannel channel,
-    Version v, {
+    PhoenixChannel channel, {
+    Version v = Version.v2,
     this.event,
     this.payload,
     this.timeout,
   })  : _channel = channel,
         _logger = Logger('phoenix_socket.push.${channel.loggerName}'),
-        _version = v;
+        _version = v,
+        _responseCompleter = Completer<PushResponse>();
 
   final Logger _logger;
   final ListMultimap<String, void Function(PushResponse)> _receivers =
@@ -109,12 +105,11 @@ class Push {
   String? _ref;
   PhoenixChannelEvent? _replyEvent;
 
-  Completer<PushResponse>? _responseCompleter;
+  Completer<PushResponse> _responseCompleter;
 
   /// A future that will yield the response to the original message.
   Future<PushResponse> get future async {
-    _responseCompleter ??= Completer<PushResponse>();
-    final response = await _responseCompleter!.future;
+    final response = await _responseCompleter.future;
     if (response.isTimeout) {
       throw ChannelTimeoutException(response);
     }
@@ -222,7 +217,6 @@ class Push {
     _received = null;
     _resetRef();
     _sent = false;
-    _responseCompleter = null;
   }
 
   /// Trigger the appropriate waiters and future associated for this push,
@@ -233,24 +227,22 @@ class Push {
   void trigger(PushResponse response) {
     _received = response;
 
-    if (_responseCompleter != null) {
-      if (_responseCompleter!.isCompleted) {
-        _logger
-          ..warning('Push being completed more than once')
-          ..warning(
-            () => '  event: $replyEvent, status: ${response.status}',
-          )
-          ..finer(
-            () => '  response: ${response.response}',
-          );
-
-        return;
-      } else {
-        _logger.finer(
-          () => 'Completing for $replyEvent with response ${response.response}',
+    if (_responseCompleter.isCompleted) {
+      _logger
+        ..warning('Push being completed more than once')
+        ..warning(
+          () => '  event: $replyEvent, status: ${response.status}',
+        )
+        ..finer(
+          () => '  response: ${response.response}',
         );
-        _responseCompleter!.complete(response);
-      }
+
+      return;
+    } else {
+      _logger.finer(
+        () => 'Completing for $replyEvent with response ${response.response}',
+      );
+      _responseCompleter.complete(response);
     }
 
     _logger.finer(() {
@@ -261,16 +253,21 @@ class Push {
     });
 
     final receivers = _receivers[response.status].toList();
-    clearWaiters();
+    clearReceivers();
     for (final cb in receivers) {
       cb(response);
     }
   }
 
-  /// Dispose the set of waiters and future associated with this push.
-  void clearWaiters() {
+  /// Dispose the set of waiters associated with this push.
+  void clearReceivers() {
     _receivers.clear();
-    _responseCompleter = null;
+  }
+
+  // Remove existing waiters and reset completer
+  void cleanUp() {
+    clearReceivers();
+    _responseCompleter = Completer();
   }
 
   void _receiveResponse(dynamic response) {
@@ -280,9 +277,9 @@ class Push {
         trigger(PushResponse.fromMessage(response));
       }
     } else if (response is PhoenixException) {
-      if (_responseCompleter is Completer && !_responseCompleter!.isCompleted) {
-        _responseCompleter!.completeError(response);
-        clearWaiters();
+      if (!_responseCompleter.isCompleted) {
+        _responseCompleter.completeError(response);
+        clearReceivers();
       }
     }
   }
