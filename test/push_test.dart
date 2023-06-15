@@ -6,7 +6,7 @@ void main() {
     var phoenixSocket = PhoenixSocket('');
     final channel = PhoenixChannel.fromSocket(phoenixSocket, topic: 'oui');
 
-    var push = Push(channel, event: PhoenixChannelEvent.leave);
+    var push = Push(channel, Version.v2, event: PhoenixChannelEvent.leave);
     push.trigger(PushResponse(status: 'ok'));
 
     expect(push.future, completes);

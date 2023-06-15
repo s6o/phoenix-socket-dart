@@ -68,8 +68,8 @@ class Push {
   ///
   /// Prefer using [PhoenixChannel.push] instead of using this.
   Push(
-    PhoenixChannel channel, {
-    Version v = Version.v2,
+    PhoenixChannel channel,
+    Version v, {
     this.event,
     this.payload,
     this.timeout,
