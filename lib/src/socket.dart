@@ -2,8 +2,8 @@ import 'dart:async';
 import 'dart:core';
 import 'dart:math';
 
-import 'package:collection/collection.dart' show IterableExtension;
 import 'package:logging/logging.dart';
+import 'package:phoenix_socket/src/utils/iterable_extensions.dart';
 import 'package:rxdart/rxdart.dart';
 import 'package:web_socket_channel/status.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
@@ -14,6 +14,7 @@ import 'exceptions.dart';
 import 'message.dart';
 import 'push.dart';
 import 'socket_options.dart';
+import 'version.dart';
 
 part '_stream_router.dart';
 
@@ -49,12 +50,15 @@ class PhoenixSocket {
   PhoenixSocket(
     /// The URL of the Phoenix server.
     String endpoint, {
-
     /// The options used when initiating and maintaining the
     /// websocket connection.
     PhoenixSocketOptions? socketOptions,
+
+    /// The factory to use to create the WebSocketChannel.
+    WebSocketChannel Function(Uri uri)? webSocketChannelFactory,
   })  : _endpoint = endpoint,
-        _socketState = SocketState.unknown {
+        _socketState = SocketState.unknown,
+        _webSocketChannelFactory = webSocketChannelFactory {
     _options = socketOptions ?? PhoenixSocketOptions();
 
     _reconnects = _options.reconnectDelays;
@@ -87,6 +91,7 @@ class PhoenixSocket {
       StreamController.broadcast();
   final String _endpoint;
   final StreamController<Message> _topicMessages = StreamController();
+  final WebSocketChannel Function(Uri uri)? _webSocketChannelFactory;
 
   late Uri _mountPoint;
 
@@ -169,15 +174,14 @@ class PhoenixSocket {
   /// Whether the underlying socket is connected of not.
   bool get isConnected => _ws != null && _socketState == SocketState.connected;
 
-  /// Attempts to make a WebSocket connection to the Phoenix backend.
-  ///
-  /// If the attempt fails, retries will be triggered at intervals specified
-  /// by retryAfterIntervalMS
-  Future<PhoenixSocket?> connect() async {
-    if (_ws != null) {
+  void _connect(Completer<PhoenixSocket?> completer) async {
+    if (_ws != null &&
+        (_socketState == SocketState.connected ||
+            _socketState == SocketState.connecting)) {
       _logger.warning(
           'Calling connect() on already connected or connecting socket.');
-      return this;
+      completer.complete(this);
+      return;
     }
 
     _shouldReconnect = true;
@@ -189,10 +193,11 @@ class PhoenixSocket {
     _mountPoint = await _buildMountPoint(_endpoint, _options);
     _logger.finest(() => 'Attempting to connect to $_mountPoint');
 
-    final completer = Completer<PhoenixSocket?>();
-
     try {
-      _ws = WebSocketChannel.connect(_mountPoint);
+      _ws = _webSocketChannelFactory != null
+          ? _webSocketChannelFactory!(_mountPoint)
+          : WebSocketChannel.connect(_mountPoint);
+
       _ws!.stream
           .where(_shouldPipeMessage)
           .listen(_onSocketData, cancelOnError: true)
@@ -206,7 +211,13 @@ class PhoenixSocket {
     _socketState = SocketState.connecting;
 
     try {
+      // Wait for the WebSocket to be ready before continuing. In case of a
+      // failure to connect, the future will complete with an error and will be
+      // caught.
+      await _ws!.ready;
+
       _socketState = SocketState.connected;
+
       _logger.finest('Waiting for initial heartbeat roundtrip');
       if (await _sendHeartbeat(ignorePreviousHeartbeat: true)) {
         _stateStreamController.add(PhoenixSocketOpenEvent());
@@ -215,15 +226,26 @@ class PhoenixSocket {
       } else {
         throw PhoenixException(version: version);
       }
-    } on PhoenixException catch (err, stackTrace) {
-      _logger.severe('Raised PhoenixException', err, stackTrace);
+    } catch (err, stackTrace) {
+      _logger.severe('Raised Exception', err, stackTrace);
 
       _ws = null;
       _socketState = SocketState.closed;
 
       completer.complete(_delayedReconnect());
     }
+  }
 
+  /// Attempts to make a WebSocket connection to the Phoenix backend.
+  ///
+  /// If the attempt fails, retries will be triggered at intervals specified
+  /// by retryAfterIntervalMS
+  Future<PhoenixSocket?> connect() async {
+    final completer = Completer<PhoenixSocket?>();
+    runZonedGuarded(
+      () => _connect(completer),
+      (error, stack) {},
+    );
     return completer.future;
   }
 
@@ -345,12 +367,7 @@ class PhoenixSocket {
     Map<String, dynamic>? parameters,
     Duration? timeout,
   }) {
-    PhoenixChannel? channel;
-    if (channels.isNotEmpty) {
-      final foundChannels =
-          channels.entries.where((element) => element.value.topic == topic);
-      channel = foundChannels.isNotEmpty ? foundChannels.first.value : null;
-    }
+    PhoenixChannel? channel = channels[topic];
 
     if (channel == null) {
       channel = PhoenixChannel.fromSocket(
@@ -360,7 +377,7 @@ class PhoenixSocket {
         timeout: timeout ?? defaultTimeout,
       );
 
-      channels[channel.reference] = channel;
+      channels[channel.topic] = channel;
       _logger.finer(() => 'Adding channel ${channel!.topic}');
     } else {
       _logger.finer(() => 'Reusing existing channel ${channel!.topic}');
@@ -375,8 +392,21 @@ class PhoenixSocket {
   /// leaving the channel.
   void removeChannel(PhoenixChannel channel) {
     _logger.finer(() => 'Removing channel ${channel.topic}');
-    if (channels.remove(channel.reference) is PhoenixChannel) {
+    if (channels.remove(channel.topic) is PhoenixChannel) {
       _topicStreams.remove(channel.topic);
+    }
+  }
+
+  /// Processing incoming data from the socket
+  ///
+  /// Used to define a custom message type for proper data decoding
+  onSocketDataCallback(message) {
+    if (message is String) {
+      if (!_receiveStreamController.isClosed) {
+        _receiveStreamController.add(message);
+      }
+    } else {
+      throw ArgumentError('Received a non-string');
     }
   }
 
@@ -433,16 +463,9 @@ class PhoenixSocket {
       await sendMessage(_heartbeatMessage());
       _logger.fine('[phoenix_socket] Heartbeat completed');
       return true;
-    } on PhoenixException catch (err, stacktrace) {
-      _logger.severe(
-        '[phoenix_socket] Heartbeat message failed with error',
-        err,
-        stacktrace,
-      );
-      return false;
     } on WebSocketChannelException catch (err, stacktrace) {
       _logger.severe(
-        '[phoenix_socket] Heartbeat message failed with error',
+        '[phoenix_socket] Heartbeat message failed: WebSocketChannelException',
         err,
         stacktrace,
       );
@@ -453,6 +476,15 @@ class PhoenixSocket {
           stacktrace: stacktrace,
         ),
       ));
+
+      return false;
+    } catch (err, stacktrace) {
+      _logger.severe(
+        '[phoenix_socket] Heartbeat message failed',
+        err,
+        stacktrace,
+      );
+
       return false;
     }
   }
@@ -490,21 +522,9 @@ class PhoenixSocket {
     }
   }
 
-  void _onSocketData(message) {
-    if (message is String) {
-      if (!_receiveStreamController.isClosed) {
-        _receiveStreamController.add(message);
-      }
-    } else {
-      throw ArgumentError('Received a non-string');
-    }
-  }
+  void _onSocketData(message) => onSocketDataCallback(message);
 
   void _onSocketError(dynamic error, dynamic stacktrace) {
-    if (_socketState == SocketState.closing ||
-        _socketState == SocketState.closed) {
-      return;
-    }
     final socketError = PhoenixSocketErrorEvent(
       error: error,
       stacktrace: stacktrace,

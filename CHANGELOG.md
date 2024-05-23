@@ -1,3 +1,32 @@
+## [0.7.4.]
+
+- Fix some race conditions when handling connectivity issues
+
+## [0.7.3.]
+
+- Reduce reliance of the package on 3rd party dependencies
+- Await for a successful connection to the websocket before listening to messages
+
+## [0.7.2.]
+
+- Delay channel join until socket is open
+- Only emit channel replies from channel.messages
+
+## [0.7.1.]
+
+- Ensure all exceptions are retried
+- Add unit tests for socket
+- Only propagate errors to the channels on channel exception
+- Don't rethrow. Stops the periodic timer.
+- Catch all exceptions when Push.send fails
+
+## [0.7.0.]
+
+- Fix correct usage of channels map
+- Add channel timeout test
+- Export message_serializer.dart
+- Add support for custom decoder and encoder
+
 ## [0.6.4.]
 
 - Republish of 0.6.3 with actual fix

@@ -1,23 +1,12 @@
-import 'package:meta/meta.dart';
-
 import 'message_serializer.dart';
-
-/// Phoenix socket protocol version
-enum Version {
-  v1('1.0.0'),
-  v2('2.0.0');
-
-  final String xyz;
-  const Version(this.xyz);
-}
+import 'version.dart';
 
 /// Options for the open Phoenix socket.
 ///
 /// Provided durations are all in milliseconds.
-@immutable
 class PhoenixSocketOptions {
   /// Create a PhoenixSocketOptions
-  PhoenixSocketOptions({
+  const PhoenixSocketOptions({
     /// The duration after which a connection attempt
     /// is considered failed
     Duration? timeout,
@@ -55,7 +44,7 @@ class PhoenixSocketOptions {
     /// installations e.g. 1.3.4
     this.version = Version.v2,
   })  : _timeout = timeout ?? const Duration(seconds: 10),
-        serializer = serializer ?? MessageSerializer(),
+        serializer = serializer ?? const MessageSerializer(),
         _heartbeat = heartbeat ?? const Duration(seconds: 30),
         assert(!(params != null && dynamicParams != null),
             "Can't set both params and dynamicParams");

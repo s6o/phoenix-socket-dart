@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:logging/logging.dart';
-import 'package:pedantic/pedantic.dart';
 
 import 'events.dart';
 import 'exceptions.dart';
@@ -53,7 +52,7 @@ class PhoenixChannel {
     _joinPush = _prepareJoin();
     _logger = Logger('phoenix_socket.channel.$loggerName');
     _subscriptions
-      ..add(messages.listen(_onMessage))
+      ..add(_controller.stream.listen(_onMessage))
       ..addAll(_subscribeToSocketStreams(socket));
   }
 
@@ -83,7 +82,9 @@ class PhoenixChannel {
   final List<Push> pushBuffer = [];
 
   /// Stream of all messages coming through this channel from the backend.
-  Stream<Message> get messages => _controller.stream;
+  Stream<Message> get messages => _controller.stream.where(
+        (message) => !message.event.isReply || message.event.isChannelReply,
+      );
 
   /// Unique identifier of the 'join' push message.
   String get joinRef => _joinPush.ref;
@@ -227,7 +228,11 @@ class PhoenixChannel {
     }
 
     _joinedOnce = true;
-    _attemptJoin();
+    if (socket.isConnected) {
+      _attemptJoin();
+    } else {
+      _state = PhoenixChannelState.errored;
+    }
 
     return _joinPush;
   }
@@ -275,12 +280,16 @@ class PhoenixChannel {
     );
 
     if (canPush) {
+      _logger.finest(() => 'Sending out push ${pushEvent.ref}');
       pushEvent.send();
     } else {
-      if (_state == PhoenixChannelState.closed) {
-        throw ChannelClosedError('Can\'t push event on a closed channel');
+      if (_state == PhoenixChannelState.closed ||
+          _state == PhoenixChannelState.errored) {
+        throw ChannelClosedError('Can\'t push event on a $_state channel');
       }
 
+      _logger.finest(
+          () => 'Buffering push ${pushEvent.ref} for later send ($_state)');
       pushBuffer.add(pushEvent);
     }
 

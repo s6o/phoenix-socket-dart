@@ -61,6 +61,7 @@ class _MyHomePageState extends State<MyHomePage> {
             StreamBuilder(
               stream: _channel?.messages,
               initialData: Message(
+                version: Version.v2,
                 event: PhoenixChannelEvent.join,
                 joinRef: '',
                 payload: {'times': 0},
@@ -82,7 +83,7 @@ class _MyHomePageState extends State<MyHomePage> {
                 return Container(
                   child: Text(
                     '$_counter',
-                    style: Theme.of(context).textTheme.headline4,
+                    style: Theme.of(context).textTheme.headlineMedium,
                   ),
                 );
               },

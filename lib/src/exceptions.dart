@@ -1,9 +1,8 @@
-import 'package:phoenix_socket/phoenix_socket.dart';
-
 import 'events.dart';
 import 'message.dart';
 import 'push.dart';
 import 'socket.dart';
+import 'version.dart';
 
 /// Exception yield when a [PhoenixSocket] closes for unexpected reasons.
 class PhoenixException implements Exception {

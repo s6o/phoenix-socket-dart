@@ -1,24 +1,33 @@
 import 'dart:convert';
 
-import 'package:phoenix_socket/phoenix_socket.dart';
+import 'message.dart';
+import 'version.dart';
+
+typedef DecoderCallback = dynamic Function(String rawData);
+typedef EncoderCallback = String Function(Object? data);
 
 /// Default class to serialize [Message] instances to JSON.
 class MessageSerializer {
-  MessageSerializer._();
+  final DecoderCallback _decoder;
+  final EncoderCallback _encoder;
 
   /// Default constructor returning the singleton instance of this class.
-  factory MessageSerializer() => _instance ??= MessageSerializer._();
-
-  static MessageSerializer? _instance;
+  const MessageSerializer({
+    DecoderCallback decoder = jsonDecode,
+    EncoderCallback encoder = jsonEncode,
+  })  : _decoder = decoder,
+        _encoder = encoder;
 
   /// Yield a [Message] from some raw string arriving from a websocket.
-  Message decode(String rawData, Version v) {
-    return Message.fromJson(jsonDecode(rawData), v);
+  Message decode(dynamic rawData, Version v) {
+    if (rawData is String || rawData is List<int>) {
+      return Message.fromJson(_decoder(rawData), v);
+    } else {
+      throw ArgumentError('Received a non-string or a non-list of integers');
+    }
   }
 
   /// Given a [Message], return the raw string that would be sent through
   /// a websocket.
-  String encode(Message message) {
-    return jsonEncode(message.encode());
-  }
+  String encode(Message message) => _encoder(message.encode());
 }
