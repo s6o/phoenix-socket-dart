@@ -215,6 +215,7 @@ class PhoenixChannel {
         ..send();
     }
 
+    _joinedOnce = false;
     return currentLeavePush;
   }
 
